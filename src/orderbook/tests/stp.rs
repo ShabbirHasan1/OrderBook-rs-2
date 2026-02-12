@@ -152,16 +152,16 @@ mod tests {
     }
 
     #[test]
-    fn test_cancel_taker_zero_user_bypasses_stp() {
+    fn test_cancel_taker_zero_taker_user_bypasses_stp_during_matching() {
         let mut book: OrderBook<()> = OrderBook::new("TEST");
         book.set_stp_mode(STPMode::CancelTaker);
 
-        let same_user = Hash32::zero();
-        add_sell_order_with_user(&book, 100, 10, same_user);
+        let maker_user = user(1);
+        add_sell_order_with_user(&book, 100, 10, maker_user);
 
-        // Hash32::zero() should bypass STP
+        // Matching with Hash32::zero() as taker_user_id should bypass STP
         let taker_id = OrderId::new();
-        let result = book.match_market_order_with_user(taker_id, 10, Side::Buy, same_user);
+        let result = book.match_market_order_with_user(taker_id, 10, Side::Buy, Hash32::zero());
         assert!(result.is_ok());
         let mr = result.unwrap();
         assert!(mr.is_complete);
@@ -571,5 +571,263 @@ mod tests {
         let mr = result.unwrap();
         assert_eq!(mr.executed_quantity(), 5);
         assert!(!mr.is_complete);
+    }
+
+    // -----------------------------------------------------------------------
+    // MissingUserId enforcement (issue #9)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_missing_user_id_limit_order_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelTaker);
+
+        // add_limit_order defaults to Hash32::zero() → should be rejected
+        let result =
+            book.add_limit_order(OrderId::new(), 100, 10, Side::Buy, TimeInForce::Gtc, None);
+        match result {
+            Err(OrderBookError::MissingUserId { .. }) => {}
+            other => panic!("expected MissingUserId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_missing_user_id_limit_order_stp_disabled() {
+        let book: OrderBook<()> = OrderBook::new("TEST");
+        assert_eq!(book.stp_mode(), STPMode::None);
+
+        // STP disabled → Hash32::zero() is fine
+        let result =
+            book.add_limit_order(OrderId::new(), 100, 10, Side::Buy, TimeInForce::Gtc, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_limit_order_with_user_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelTaker);
+
+        // Non-zero user_id → accepted
+        let result = book.add_limit_order_with_user(
+            OrderId::new(),
+            100,
+            10,
+            Side::Buy,
+            TimeInForce::Gtc,
+            user(1),
+            None,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_limit_order_with_zero_user_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelMaker);
+
+        // Explicitly zero user_id via _with_user → should be rejected
+        let result = book.add_limit_order_with_user(
+            OrderId::new(),
+            100,
+            10,
+            Side::Buy,
+            TimeInForce::Gtc,
+            Hash32::zero(),
+            None,
+        );
+        match result {
+            Err(OrderBookError::MissingUserId { .. }) => {}
+            other => panic!("expected MissingUserId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_missing_user_id_iceberg_order_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelBoth);
+
+        let result = book.add_iceberg_order(
+            OrderId::new(),
+            100,
+            5,
+            10,
+            Side::Sell,
+            TimeInForce::Gtc,
+            None,
+        );
+        match result {
+            Err(OrderBookError::MissingUserId { .. }) => {}
+            other => panic!("expected MissingUserId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_iceberg_order_with_user_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelTaker);
+
+        let result = book.add_iceberg_order_with_user(
+            OrderId::new(),
+            100,
+            5,
+            10,
+            Side::Sell,
+            TimeInForce::Gtc,
+            user(2),
+            None,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_iceberg_order_stp_disabled() {
+        let book: OrderBook<()> = OrderBook::new("TEST");
+
+        let result = book.add_iceberg_order(
+            OrderId::new(),
+            100,
+            5,
+            10,
+            Side::Sell,
+            TimeInForce::Gtc,
+            None,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_missing_user_id_post_only_order_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelTaker);
+
+        let result =
+            book.add_post_only_order(OrderId::new(), 100, 10, Side::Buy, TimeInForce::Gtc, None);
+        match result {
+            Err(OrderBookError::MissingUserId { .. }) => {}
+            other => panic!("expected MissingUserId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_post_only_order_with_user_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelMaker);
+
+        let result = book.add_post_only_order_with_user(
+            OrderId::new(),
+            200,
+            10,
+            Side::Sell,
+            TimeInForce::Gtc,
+            user(3),
+            None,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_post_only_order_stp_disabled() {
+        let book: OrderBook<()> = OrderBook::new("TEST");
+
+        let result =
+            book.add_post_only_order(OrderId::new(), 100, 10, Side::Buy, TimeInForce::Gtc, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_add_order_direct_zero_user_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelTaker);
+
+        // Direct add_order with zero user_id → should be rejected
+        let order = OrderType::Standard {
+            id: OrderId::new(),
+            price: 100,
+            quantity: 10,
+            side: Side::Buy,
+            user_id: Hash32::zero(),
+            timestamp: crate::utils::current_time_millis(),
+            time_in_force: TimeInForce::Gtc,
+            extra_fields: (),
+        };
+        let result = book.add_order(order);
+        match result {
+            Err(OrderBookError::MissingUserId { .. }) => {}
+            other => panic!("expected MissingUserId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_add_order_direct_nonzero_user_stp_enabled() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelBoth);
+
+        // Direct add_order with non-zero user_id → should be accepted
+        let order = OrderType::Standard {
+            id: OrderId::new(),
+            price: 100,
+            quantity: 10,
+            side: Side::Buy,
+            user_id: user(5),
+            timestamp: crate::utils::current_time_millis(),
+            time_in_force: TimeInForce::Gtc,
+            extra_fields: (),
+        };
+        let result = book.add_order(order);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_missing_user_id_all_stp_modes() {
+        // Verify enforcement for every non-None STP mode
+        for mode in [
+            STPMode::CancelTaker,
+            STPMode::CancelMaker,
+            STPMode::CancelBoth,
+        ] {
+            let mut book: OrderBook<()> = OrderBook::new("TEST");
+            book.set_stp_mode(mode);
+
+            let result =
+                book.add_limit_order(OrderId::new(), 100, 10, Side::Buy, TimeInForce::Gtc, None);
+            match result {
+                Err(OrderBookError::MissingUserId { .. }) => {}
+                other => panic!("expected MissingUserId for mode {mode}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_missing_user_id_error_contains_order_id() {
+        let mut book: OrderBook<()> = OrderBook::new("TEST");
+        book.set_stp_mode(STPMode::CancelTaker);
+
+        let oid = OrderId::new();
+        let order = OrderType::Standard {
+            id: oid,
+            price: 100,
+            quantity: 10,
+            side: Side::Buy,
+            user_id: Hash32::zero(),
+            timestamp: crate::utils::current_time_millis(),
+            time_in_force: TimeInForce::Gtc,
+            extra_fields: (),
+        };
+        let result = book.add_order(order);
+        match result {
+            Err(OrderBookError::MissingUserId { order_id }) => {
+                assert_eq!(order_id, oid);
+            }
+            other => panic!("expected MissingUserId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_missing_user_id_display() {
+        let oid = OrderId::new();
+        let err = OrderBookError::MissingUserId { order_id: oid };
+        let msg = err.to_string();
+        assert!(msg.contains("missing user_id"));
+        assert!(msg.contains("STP"));
     }
 }

@@ -608,12 +608,13 @@ where
         }
 
         self.cache.invalidate();
-        // Attempt to match the order immediately
-        let match_result = self.match_order(
+        // Attempt to match the order immediately (with STP user_id propagation)
+        let match_result = self.match_order_with_user(
             order.id(),
             order.side(),
             order.total_quantity(), // Use total quantity for matching
             Some(order.price()),
+            order.user_id(),
         )?;
 
         if !match_result.transactions.transactions.is_empty()

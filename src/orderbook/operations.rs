@@ -97,7 +97,10 @@ where
         self.add_order(order)
     }
 
-    /// Submit a simple market order
+    /// Submit a simple market order.
+    ///
+    /// This convenience method bypasses STP (uses `Hash32::zero()`).
+    /// Use [`Self::submit_market_order_with_user`] when STP is needed.
     pub fn submit_market_order(
         &self,
         id: OrderId,
@@ -106,5 +109,34 @@ where
     ) -> Result<MatchResult, OrderBookError> {
         trace!("Submitting market order {} {} {}", id, quantity, side);
         OrderBook::<T>::match_market_order(self, id, quantity, side)
+    }
+
+    /// Submit a market order with Self-Trade Prevention support.
+    ///
+    /// When STP is enabled and `user_id` is non-zero, the matching engine
+    /// checks resting orders for same-user conflicts before executing fills.
+    ///
+    /// # Arguments
+    /// * `id` — Unique identifier for this market order.
+    /// * `quantity` — Quantity to match.
+    /// * `side` — Buy or Sell.
+    /// * `user_id` — Owner of the incoming order for STP checks.
+    ///   Pass `Hash32::zero()` to bypass STP.
+    ///
+    /// # Errors
+    /// Returns [`OrderBookError::SelfTradePrevented`] when STP cancels the
+    /// taker before any fills occur.
+    pub fn submit_market_order_with_user(
+        &self,
+        id: OrderId,
+        quantity: u64,
+        side: Side,
+        user_id: Hash32,
+    ) -> Result<MatchResult, OrderBookError> {
+        trace!(
+            "Submitting market order {} {} {} (user: {})",
+            id, quantity, side, user_id
+        );
+        OrderBook::<T>::match_market_order_with_user(self, id, quantity, side, user_id)
     }
 }

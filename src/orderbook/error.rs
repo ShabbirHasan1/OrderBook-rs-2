@@ -87,6 +87,17 @@ pub enum OrderBookError {
         /// The configured maximum order size, if any
         max: Option<u64>,
     },
+
+    /// Self-trade prevention triggered: the incoming order would have
+    /// matched against a resting order from the same user.
+    SelfTradePrevented {
+        /// The STP mode that was active
+        mode: crate::orderbook::stp::STPMode,
+        /// The taker (incoming) order ID
+        taker_order_id: pricelevel::OrderId,
+        /// The user ID that triggered the STP check
+        user_id: pricelevel::Hash32,
+    },
 }
 
 impl fmt::Display for OrderBookError {
@@ -146,6 +157,16 @@ impl fmt::Display for OrderBookError {
                 write!(
                     f,
                     "order size out of range: quantity {quantity}, min {min:?}, max {max:?}"
+                )
+            }
+            OrderBookError::SelfTradePrevented {
+                mode,
+                taker_order_id,
+                user_id,
+            } => {
+                write!(
+                    f,
+                    "self-trade prevented ({mode}): taker {taker_order_id}, user {user_id}"
                 )
             }
         }
